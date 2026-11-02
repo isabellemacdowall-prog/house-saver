@@ -30,3 +30,8 @@ Download **HouseSaver.apk** (house plan) or **MySpending.apk** (your private spe
 ## "My spending" (private tab)
 Requires the updated `firestore.rules` (publish them in Firebase → Firestore → Rules).
 Then open the My spending tab and choose your private `personal-setup.json` once.
+
+## Install as an app (no APK needed)
+- **Android (Chrome):** open the site and tap **Install app**, or Chrome menu ⋮ → **Add to Home screen / Install app**.
+- **iPhone (Safari):** Share → **Add to Home Screen**.
+- For **My Spending** as its own app, do the same from `…/house-saver/?app=me`.

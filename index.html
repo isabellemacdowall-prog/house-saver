@@ -5,9 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
 <title>House Deposit Plan</title>
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#1f6f5c">
-<link rel="apple-touch-icon" href="icon-192.png">
+<script>
+(function(){var me=new URLSearchParams(location.search).get('app')==='me';
+document.write('<link rel="manifest" href="'+(me?'me-manifest.json':'manifest.json')+'">'+
+'<meta name="theme-color" content="'+(me?'#5b4b9b':'#1f6f5c')+'">'+
+'<link rel="apple-touch-icon" href="'+(me?'me-icon-192.png':'icon-192.png')+'">'+
+'<meta name="apple-mobile-web-app-title" content="'+(me?'My Spending':'House Saver')+'">');})();
+</script>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 15 16 5l12 10v12H4z' fill='%231f6f5c'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -188,6 +195,7 @@ body.me-only #meSignOut{display:inline-block!important}
     <h1>House Deposit Plan</h1>
     <p class="lede">Your budget, the three saving plans and a tracker that fills in from your Up statements. Add a monthly statement on the Tracker tab, and the actual spending lands next to the budget for each line. Changes save for both of you.</p>
     <p class="status" id="syncStatus" role="status">Connecting…</p>
+    <p class="row" id="installRow" hidden><button class="btn primary" id="installBtn">Install app</button><span class="foot" id="installHint"></span></p>
   </header>
 
   <section class="planbar" aria-label="Plan">
@@ -1057,6 +1065,13 @@ document.addEventListener('change',async e=>{
       catch(err){ errs.push(f.name+': '+(err.message||'could not be read')); } }
     msg.textContent=`${n} month${n!==1?'s':''} added.`+(errs.length?' '+errs.join(' '):''); return; }
 });
+
+// ===== Installable app (PWA) =====
+if('serviceWorker' in navigator && location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
+let deferredInstall=null;
+window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); deferredInstall=e; document.getElementById('installRow').hidden=false; document.getElementById('installHint').textContent=''; });
+document.getElementById('installBtn').onclick=async()=>{ if(!deferredInstall) return; deferredInstall.prompt(); await deferredInstall.userChoice.catch(()=>{}); deferredInstall=null; document.getElementById('installRow').hidden=true; };
+window.addEventListener('appinstalled',()=>{ document.getElementById('installRow').hidden=true; });
 
 </script>
 </body>
