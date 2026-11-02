@@ -152,6 +152,12 @@ tr.cur td{background:var(--accent-soft)}
 input[type=email]{font:500 14px var(--body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 9px;min-width:0;flex:1 1 220px}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 th.cur{color:var(--ink)}
+
+body.me-only #app > header .lede, body.me-only .planbar, body.me-only .stats, body.me-only #app > section.panel:not(.budgets-panel), body.me-only #app > p.foot,
+body.me-only .budgets-panel > .toolbar, body.me-only .budgets-panel [role=tabpanel]:not(#p-me){display:none!important}
+body.me-only .budgets-panel #p-me{display:block!important}
+body.me-only #meSignOut{display:inline-block!important}
+@media (max-width:560px){.metable .ot{display:none}.metable td .note{display:none}}
 </style>
 </head>
 <body>
@@ -214,7 +220,7 @@ th.cur{color:var(--ink)}
     <p class="foot">Lines show each plan from today's balance. Dots are your actual House Deposit balance at the end of each month, taken from the statements you add. <span id="chartNote"></span> Pay rises and tax refunds aren't included unless you add a one-off.</p>
   </section>
 
-  <section class="panel" aria-label="Budgets and tracker">
+  <section class="panel budgets-panel" aria-label="Budgets and tracker">
     <div class="toolbar">
       <div class="tabs" role="tablist">
         <button class="tab" role="tab" id="t-track" aria-selected="true" aria-controls="p-track">Tracker</button>
@@ -260,7 +266,7 @@ th.cur{color:var(--ink)}
       <div class="savings" id="saveList"></div>
     </div>
 
-    <div id="p-me" role="tabpanel" aria-labelledby="t-me" hidden><div id="meRoot"></div></div>
+    <div id="p-me" role="tabpanel" aria-labelledby="t-me" hidden><div id="meRoot"></div><p class="row" style="margin-top:14px"><button class="btn" id="meSignOut" style="display:none">Sign out</button></p></div>
 
     <div id="p-up" role="tabpanel" aria-labelledby="t-up" hidden>
       <div class="grid2">
@@ -302,6 +308,7 @@ th.cur{color:var(--ink)}
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script>
+const ME_ONLY=new URLSearchParams(location.search).get('app')==='me';
 let PLAN={income:[],joint:[],isy:[],book:[],bookSales:0,start:0,goal:100000,lump:0}, SUBS=[], FAST={}, SUPER={}, PLAN_NOTES={steady:'',fast:'',super:''};
 let CAR={balance:0,date:'2026-09-18',target:0,weekly:250}, CFG_NOTES={chart:'',pay:'',tips:[]};
 let CAR_DONE=new Date(2100,0,1);
@@ -309,7 +316,7 @@ function applyConfig(c){
   UP.setExtra(c.parserExtra); PLAN=c.PLAN; SUBS=c.SUBS||[]; FAST=c.FAST||{}; SUPER=c.SUPER||{}; PLAN_NOTES=c.PLAN_NOTES||PLAN_NOTES; CAR=c.CAR||CAR; CFG_NOTES=c.notes||CFG_NOTES;
   const need=Math.max(0,CAR.target-CAR.balance); const [y,m,d]=CAR.date.split('-').map(Number);
   CAR_DONE=CAR.target?new Date(new Date(y,m-1,d).getTime()+Math.ceil(need/CAR.weekly)*7*864e5):new Date(2100,0,1);
-  document.getElementById('hhName').textContent=(c.name?c.name+' \u00b7 ':'')+'plan starts with the 12 Nov 2026 pay';
+  if(!ME_ONLY) document.getElementById('hhName').textContent=(c.name?c.name+' \u00b7 ':'')+'plan starts with the 12 Nov 2026 pay';
   document.getElementById('chartNote').textContent=CFG_NOTES.chart||'';
   document.getElementById('payNote').textContent=CFG_NOTES.pay||'';
   const mk=document.getElementById('extraTips'); mk.parentElement.querySelectorAll('li.tipx').forEach(e=>e.remove()); mk.insertAdjacentHTML('afterend',(CFG_NOTES.tips||[]).map(t=>'<li class="tipx">'+esc(t)+'</li>').join(''));
@@ -869,7 +876,7 @@ let hhRef=null, me=null, members=[], unsubs=[];
 
   document.getElementById('signInBtn').onclick=()=>{ const p=new firebase.auth.GoogleAuthProvider(); auth.signInWithPopup(p).catch(e=>{ if(e.code==='auth/popup-blocked'||e.code==='auth/operation-not-supported-in-this-environment') auth.signInWithRedirect(p); else gateMsg('Sign-in didn’t work: '+e.message); }); };
   const out=()=>{ unsubs.forEach(u=>u()); unsubs=[]; if(typeof meUnsubs!=='undefined'){meUnsubs.forEach(u=>u()); meUnsubs=[]; meDoc=null; meMonths={};} auth.signOut(); };
-  document.getElementById('signOut').onclick=out; document.getElementById('signOut2').onclick=out;
+  document.getElementById('signOut').onclick=out; document.getElementById('meSignOut').onclick=out; document.getElementById('signOut2').onclick=out;
 
   auth.onAuthStateChanged(async user=>{
     unsubs.forEach(u=>u()); unsubs=[];
@@ -912,11 +919,12 @@ let hhRef=null, me=null, members=[], unsubs=[];
 })();
 
 function start(){
+  if(ME_ONLY){ document.body.classList.add('me-only'); document.querySelector('#app h1').textContent='My Spending'; document.title='My Spending'; document.getElementById('hhName').textContent='Private · only you can see this'; }
   document.getElementById('gate').hidden=true; document.getElementById('app').hidden=false;
   document.getElementById('whoAmI').textContent='Signed in as '+me;
   setStatus('Loading your data…');
   let gotC=false,gotS=false,gotM=false;
-  const done=()=>{ if(gotC&&gotS&&gotM) setStatus('Up to date. Changes save for everyone with access.'); };
+  const done=()=>{ if(gotC&&gotS&&gotM) setStatus(ME_ONLY?'Up to date. Only you can see this.':'Up to date. Changes save for everyone with access.'); };
   const fail=e=>{ setStatus('Couldn’t load ('+(e&&e.code||'error')+'). Try reloading.'); };
   unsubs.push(hhRef.onSnapshot(s=>{ if(!s.exists) return; members=(s.data().members||[]); renderMembers(); },fail));
   unsubs.push(hhRef.collection('config').doc('plan').onSnapshot(s=>{
@@ -988,17 +996,17 @@ function renderMe(err){
     <div class="seg" role="group" aria-label="Show amounts">${[['wk','Weekly'],['fn','Fortnightly'],['mo','Monthly']].map(([u,n])=>`<button data-meunit="${u}" aria-pressed="${meUnit===u}">${n}</button>`).join('')}</div></div>`;
   // comparison table
   h+=`<h3 style="margin-top:14px">My budget</h3><p class="foot">All three options side by side. Your money comes from 2Up, so the amount follows the house plan. Edit any amount for the plan you’re on.</p>`;
-  h+=`<div class="tablewrap"><table class="track"><thead><tr><th>Line</th><th class="r">Last year</th>${Object.entries(ME_TIERS).map(([t,n])=>`<th class="r ${t===meTier?'cur':''}">${n} ${meUnitLabel()}</th>`).join('')}</tr></thead><tbody>`;
-  h+=`<tr class="grp"><td colspan="5">Money in</td></tr><tr><td>Personal money from 2Up</td><td></td>${Object.keys(ME_TIERS).map(t=>`<td class="r num">${money(meAllowance(t)*k)}</td>`).join('')}</tr>`;
+  h+=`<div class="tablewrap"><table class="track metable"><thead><tr><th>Line</th><th class="r">Last year</th>${Object.entries(ME_TIERS).map(([t,n])=>`<th class="r ${t===meTier?'cur':'ot'}">${n} ${meUnitLabel()}</th>`).join('')}</tr></thead><tbody>`;
+  h+=`<tr class="grp"><td colspan="5">Money in</td></tr><tr><td>Personal money from 2Up</td><td></td>${Object.keys(ME_TIERS).map(t=>`<td class="r num ${t===meTier?'':'ot'}">${money(meAllowance(t)*k)}</td>`).join('')}</tr>`;
   h+=`<tr class="grp"><td colspan="5">Spending</td></tr>`;
   for(const l of lines){
     h+=`<tr><td>${esc(l.name)}${l.note?`<span class="note">${esc(l.note)}</span>`:''}</td><td class="r num">${l.last?money(l.last*k):'–'}</td>${Object.keys(ME_TIERS).map(t=>t===meTier
       ?`<td class="r"><input type="number" data-meline="${l.id}" step="${meUnit==='wk'?1:5}" min="0" value="${+((l[t]||0)*k).toFixed(2)}" aria-label="${esc(l.name)} ${ME_TIERS[t]}"></td>`
-      :`<td class="r num">${money((l[t]||0)*k)}</td>`).join('')}</tr>`;
+      :`<td class="r num ot">${money((l[t]||0)*k)}</td>`).join('')}</tr>`;
   }
   const tot=t=>lines.reduce((a,l)=>a+(l[t]||0),0);
-  h+=`<tr class="tot"><td>Total</td><td class="r num">${money(lines.reduce((a,l)=>a+(l.last||0),0)*k)}</td>${Object.keys(ME_TIERS).map(t=>`<td class="r num">${money(tot(t)*k)}</td>`).join('')}</tr>`;
-  h+=`<tr class="dep"><td>Left over</td><td></td>${Object.keys(ME_TIERS).map(t=>{const v=meAllowance(t)-tot(t);return `<td class="r num ${v<0?'neg':''}">${v<0?'−':''}${money(Math.abs(v)*k)}</td>`}).join('')}</tr></tbody></table></div>`;
+  h+=`<tr class="tot"><td>Total</td><td class="r num">${money(lines.reduce((a,l)=>a+(l.last||0),0)*k)}</td>${Object.keys(ME_TIERS).map(t=>`<td class="r num ${t===meTier?'':'ot'}">${money(tot(t)*k)}</td>`).join('')}</tr>`;
+  h+=`<tr class="dep"><td>Left over</td><td></td>${Object.keys(ME_TIERS).map(t=>{const v=meAllowance(t)-tot(t);return `<td class="r num ${v<0?'neg':''} ${t===meTier?'':'ot'}">${v<0?'−':''}${money(Math.abs(v)*k)}</td>`}).join('')}</tr></tbody></table></div>`;
   if(meTier!==plan) h+=`<p class="foot">Heads up: the house plan is on <b>${PLANS[plan]}</b>, so 2Up is paying you the ${PLANS[plan]} amount (${money(meAllowance(plan)*k)}${meUnitLabel()}).</p>`;
   // tracker
   const months=[...new Set([...Object.keys(meMonths),...Object.values(monthsData).filter(m=>m.acct==='joint').map(m=>m.month)])].filter(m=>meMonths[m]||monthsData['joint_'+m]).sort().reverse();

@@ -18,14 +18,20 @@ jobs:
       - name: Build APK
         run: gradle -p android assembleRelease
       - name: Rename
-        run: cp android/app/build/outputs/apk/release/app-release.apk HouseSaver.apk
+        run: |
+          cp android/app/build/outputs/apk/house/release/app-house-release.apk HouseSaver.apk
+          cp android/app/build/outputs/apk/mine/release/app-mine-release.apk MySpending.apk
       - uses: actions/upload-artifact@v4
-        with: { name: HouseSaver-apk, path: HouseSaver.apk }
+        with: { name: apps, path: '*.apk' }
       - name: Publish to the "latest" release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: House Saver app
-          body: Download HouseSaver.apk on your Android phone and open it to install.
-          files: HouseSaver.apk
+          body: |
+            HouseSaver.apk opens the shared house plan. MySpending.apk opens only your private spending.
+            Download on your Android phone and open to install.
+          files: |
+            HouseSaver.apk
+            MySpending.apk
           make_latest: true
