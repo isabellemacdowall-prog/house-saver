@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null && request.auth.token.email_verified == true; }
+    function email() { return request.auth.token.email.lower(); }
+    function isMember(hid) {
+      return signedIn() && email() in get(/databases/$(database)/documents/households/$(hid)).data.members;
+    }
+
+    match /households/{hid} {
+      // Members can read it. Before setup, a signed-in user may check that it doesn't exist yet.
+      allow get: if signedIn() && (resource == null || isMember(hid));
+      // The very first sign-in creates the household with themselves as the only member.
+      allow create: if signedIn() && request.resource.data.members == [email()] && request.resource.data.owner == email();
+      // Members can add or remove members, but can't remove the owner.
+      allow update: if isMember(hid) && request.resource.data.owner == resource.data.owner
+                    && resource.data.owner in request.resource.data.members;
+      allow delete: if false;
+
+      match /{rest=**} {
+        allow read, write: if isMember(hid);
+      }
+    }
+  }
+}
