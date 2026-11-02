@@ -871,7 +871,7 @@ let hhRef=null, me=null, members=[], unsubs=[];
     gateMsg('Loading…'); show(null);
     let snap;
     try{ snap=await hhRef.get(); }
-    catch(e){ gateMsg('No access.'); document.getElementById('noAccessEmail').textContent=me; show('gateNoAccess'); return; }
+    catch(e){ gateMsg('No access ('+(e&&e.code||'error')+').'); document.getElementById('noAccessEmail').textContent=me; show('gateNoAccess'); return; }
     if(!snap.exists){ gateMsg('Welcome. One step to set up.'); show('gateSetup'); return; }
     start();
   });
