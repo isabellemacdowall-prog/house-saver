@@ -8,17 +8,20 @@ service cloud.firestore {
     }
 
     match /households/{hid} {
-      // Members can read it. Before setup, a signed-in user may check that it doesn't exist yet.
       allow get: if signedIn() && (resource == null || isMember(hid));
-      // The very first sign-in creates the household with themselves as the only member.
       allow create: if signedIn() && request.resource.data.members == [email()] && request.resource.data.owner == email();
-      // Members can add or remove members, but can't remove the owner.
       allow update: if isMember(hid) && request.resource.data.owner == resource.data.owner
                     && resource.data.owner in request.resource.data.members;
       allow delete: if false;
 
-      match /{rest=**} {
-        allow read, write: if isMember(hid);
+      // Shared house plan: every member
+      match /config/{doc} { allow read, write: if isMember(hid); }
+      match /settings/{doc} { allow read, write: if isMember(hid); }
+      match /months/{doc} { allow read, write: if isMember(hid); }
+
+      // "My spending": only the person it belongs to
+      match /people/{uid}/{rest=**} {
+        allow read, write: if isMember(hid) && request.auth.uid == uid;
       }
     }
   }

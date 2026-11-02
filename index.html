@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
 <title>House Deposit Plan</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1f6f5c">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 15 16 5l12 10v12H4z' fill='%231f6f5c'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -148,6 +151,7 @@ tr.cur td{background:var(--accent-soft)}
 .members li span{overflow-wrap:anywhere}
 input[type=email]{font:500 14px var(--body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px 9px;min-width:0;flex:1 1 220px}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+th.cur{color:var(--ink)}
 </style>
 </head>
 <body>
@@ -217,6 +221,7 @@ input[type=email]{font:500 14px var(--body);color:var(--ink);background:var(--bg
         <button class="tab" role="tab" id="t-joint" aria-selected="false" aria-controls="p-joint">2Up budget</button>
         <button class="tab" role="tab" id="t-save" aria-selected="false" aria-controls="p-save">Where the savings come from</button>
         <button class="tab" role="tab" id="t-up" aria-selected="false" aria-controls="p-up">Changes to make in Up</button>
+        <button class="tab" role="tab" id="t-me" aria-selected="false" aria-controls="p-me">My spending</button>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <div class="seg" role="group" aria-label="Period">
@@ -254,6 +259,8 @@ input[type=email]{font:500 14px var(--body);color:var(--ink);background:var(--bg
       <p class="foot" style="margin-bottom:8px">How much less each 2Up line spends in a year on this plan, compared with last year's actual spending.</p>
       <div class="savings" id="saveList"></div>
     </div>
+
+    <div id="p-me" role="tabpanel" aria-labelledby="t-me" hidden><div id="meRoot"></div></div>
 
     <div id="p-up" role="tabpanel" aria-labelledby="t-up" hidden>
       <div class="grid2">
@@ -803,6 +810,7 @@ function renderAll(){
   const n=Math.max(...all.map(a=>project(a.P).pts.length));
   all.forEach(a=>a.p=project(a.P,n));
   renderChart(all); renderStats(all.find(a=>a.name===plan).p);
+  if(typeof renderMe==='function') renderMe();
   for(const [id,k] of [['pS','steady'],['pF','fast'],['pU','super']]) document.getElementById(id).setAttribute('aria-pressed',plan===k);
   document.getElementById('planNote').innerHTML=PLAN_NOTES[plan];
   for(const k of ['start','goal','lump']){const el=document.getElementById(k); if(document.activeElement!==el) el.value=settings[k]; el.disabled=!canWrite;}
@@ -834,7 +842,7 @@ document.getElementById('perF').onclick=()=>{monthly=false;document.getElementBy
 document.getElementById('perM').onclick=()=>{monthly=true;document.getElementById('perM').setAttribute('aria-pressed','true');document.getElementById('perF').setAttribute('aria-pressed','false');renderAll()};
 document.getElementById('reset').onclick=()=>{settings.edits=Object.assign({},settings.edits,{[plan]:{}}); persist(); renderAll()};
 for(const [id,k] of [['pS','steady'],['pF','fast'],['pU','super']]) document.getElementById(id).onclick=()=>{plan=k;settings.plan=k;persist();renderAll()};
-const tabs=['track','joint','save','up'];
+const tabs=['track','joint','save','up','me'];
 for(const k of tabs) document.getElementById('t-'+k).onclick=()=>{for(const j of tabs){document.getElementById('t-'+j).setAttribute('aria-selected',j===k);document.getElementById('p-'+j).hidden=j!==k}};
 let rz; window.addEventListener('resize',()=>{clearTimeout(rz);rz=setTimeout(renderAll,150)});
 
@@ -860,7 +868,7 @@ let hhRef=null, me=null, members=[], unsubs=[];
   settingsRef=db.doc('settings/main');
 
   document.getElementById('signInBtn').onclick=()=>{ const p=new firebase.auth.GoogleAuthProvider(); auth.signInWithPopup(p).catch(e=>{ if(e.code==='auth/popup-blocked'||e.code==='auth/operation-not-supported-in-this-environment') auth.signInWithRedirect(p); else gateMsg('Sign-in didn’t work: '+e.message); }); };
-  const out=()=>{ unsubs.forEach(u=>u()); unsubs=[]; auth.signOut(); };
+  const out=()=>{ unsubs.forEach(u=>u()); unsubs=[]; if(typeof meUnsubs!=='undefined'){meUnsubs.forEach(u=>u()); meUnsubs=[]; meDoc=null; meMonths={};} auth.signOut(); };
   document.getElementById('signOut').onclick=out; document.getElementById('signOut2').onclick=out;
 
   auth.onAuthStateChanged(async user=>{
@@ -923,11 +931,123 @@ function start(){
     const m={}; for(const d of snap.docs) m[d.id]=decMonth(d.data()); monthsData=m;
     gotM=true; done(); renderAll();
   },fail));
+  meStart();
 }
 let settingsLoadedOnce=false;
 function renderMembers(){
   document.getElementById('memberList').innerHTML=members.map(e=>`<li><span>${esc(e)}${e===me?' (you)':''}</span>${e===me?'':`<button class="btn" data-remove="${esc(e)}">Remove</button>`}</li>`).join('');
 }
+
+// ===== My spending: private to the signed-in person =====
+const ME_TIERS={steady:'Steady',fast:'Fast track',super:'Super'};
+const ME_MAP={eat:'coffee',beauty:'beauty',fitness:'fitness',collagen:'collagen',clothes:'clothes',fun:'fun',raiz:'raiz',book:'book',subs:'apps',gifts:'gifts'};
+let meRef=null, meDoc=null, meMonths={}, meTier='steady', meUnit='wk', meSel=null, meUnsubs=[], meCanUse=false;
+const meAllowance=t=>{ const P=loadPlan(t); const g=id=>{const r=P.joint.find(x=>x.id===id);return r?r.v:0}; return g('pIsy')+g('pIsyThings'); };
+const meBookPot=t=>{ const P=loadPlan(t); const r=P.joint.find(x=>x.id==='book'); return (r?r.v:0)+(P.bookSales||0); };
+const meK=()=>meUnit==='wk'?0.5:meUnit==='mo'?26/12:1;   // values stored per fortnight
+const meUnitLabel=()=>meUnit==='wk'?'/wk':meUnit==='mo'?'/mo':'/fn';
+
+function meStart(){
+  const u=firebase.auth().currentUser; if(!u) return;
+  meUnsubs.forEach(x=>x()); meUnsubs=[];
+  meRef=hhRef.collection('people').doc(u.uid);
+  meUnsubs.push(meRef.onSnapshot(s=>{ meCanUse=true; meDoc=s.exists?s.data():null; if(meDoc&&meDoc.tier) meTier=meDoc.tier; renderMe(); },
+    e=>{ meCanUse=false; renderMe(e); }));
+  meUnsubs.push(meRef.collection('months').onSnapshot(s=>{ const m={}; s.docs.forEach(d=>m[d.id]=decMonth(d.data())); meMonths=m; renderMe(); },()=>{}));
+}
+function meSave(patch){ if(!meRef||!meDoc) return; meDoc=Object.assign({},meDoc,patch); clearTimeout(meSave.t); meSave.t=setTimeout(()=>meRef.set(meDoc).catch(e=>setStatus('Couldn’t save your spending plan ('+e.code+').')),500); }
+
+function meLines(){ return (meDoc&&meDoc.lines)||[]; }
+function meMonthTx(month){
+  const out=[]; const p=meMonths[month]; if(p) out.push(...p.tx);
+  const cards=(meDoc&&meDoc.cards)||[]; const j=monthsData['joint_'+month];
+  if(j) for(const t of j.tx) if(cards.includes(t[4]) && ['beauty','clothes','fitness','collagen','fun','raiz'].includes(keyOf(t))) out.push(t);
+  return out;
+}
+function meSummary(month){
+  const lines=meLines(); const by={}; lines.forEach(l=>by[l.id]=0); by.book=0; by.apps=0; by.other=0;
+  const tx=meMonthTx(month);
+  for(const t of tx){ const k=(meDoc.overrides&&meDoc.overrides[mkey(t[1])])||ME_MAP[keyOf(t)]||'other'; const id=(k in by)?k:'other'; by[id]+=t[2]; }
+  const rows=lines.map(l=>({id:l.id,name:l.name,budget:(l[meTier]||0)*26/12}));
+  rows.push({id:'book',name:'Book business',budget:meBookPot(meTier)*26/12,note:'Separate pot from 2Up plus book sales.'});
+  rows.push({id:'apps',name:'Apps & subscriptions',budget:0}); rows.push({id:'other',name:'Other',budget:0});
+  const budget=rows.reduce((a,r)=>a+r.budget,0), actual=Object.values(by).reduce((a,v)=>a+v,0);
+  return {rows,by,tx,budget,actual,left:budget-actual};
+}
+
+function renderMe(err){
+  const root=document.getElementById('meRoot'); if(!root||!configLoaded) return;
+  if(err){ root.innerHTML=`<div class="empty"><b>Your private area isn’t switched on yet (${esc(err.code||'error')}).</b> The database rules need one more update. See the note in SETUP.md, or ask Claude.</div>`; return; }
+  if(!meCanUse) { root.innerHTML='<p class="foot">Loading…</p>'; return; }
+  if(!meDoc){
+    root.innerHTML=`<div class="upload"><div style="display:grid;gap:4px;min-width:0"><h3>Set up my spending</h3><p class="foot">Choose your <b>personal-setup.json</b> file. Only you can see this tab — other people with access to the house plan can’t open it.</p><p class="foot" id="meSetupMsg"></p></div><label class="btn primary" for="meSetupIn">Choose setup file</label><input type="file" id="meSetupIn" accept=".json,application/json" class="visually-hidden"></div>`;
+    return;
+  }
+  const lines=meLines(); const k=meK();
+  let h=`<div class="toolbar"><div class="seg" role="group" aria-label="My plan">${Object.entries(ME_TIERS).map(([t,n])=>`<button data-metier="${t}" aria-pressed="${meTier===t}">${n}</button>`).join('')}</div>
+    <div class="seg" role="group" aria-label="Show amounts">${[['wk','Weekly'],['fn','Fortnightly'],['mo','Monthly']].map(([u,n])=>`<button data-meunit="${u}" aria-pressed="${meUnit===u}">${n}</button>`).join('')}</div></div>`;
+  // comparison table
+  h+=`<h3 style="margin-top:14px">My budget</h3><p class="foot">All three options side by side. Your money comes from 2Up, so the amount follows the house plan. Edit any amount for the plan you’re on.</p>`;
+  h+=`<div class="tablewrap"><table class="track"><thead><tr><th>Line</th><th class="r">Last year</th>${Object.entries(ME_TIERS).map(([t,n])=>`<th class="r ${t===meTier?'cur':''}">${n} ${meUnitLabel()}</th>`).join('')}</tr></thead><tbody>`;
+  h+=`<tr class="grp"><td colspan="5">Money in</td></tr><tr><td>Personal money from 2Up</td><td></td>${Object.keys(ME_TIERS).map(t=>`<td class="r num">${money(meAllowance(t)*k)}</td>`).join('')}</tr>`;
+  h+=`<tr class="grp"><td colspan="5">Spending</td></tr>`;
+  for(const l of lines){
+    h+=`<tr><td>${esc(l.name)}${l.note?`<span class="note">${esc(l.note)}</span>`:''}</td><td class="r num">${l.last?money(l.last*k):'–'}</td>${Object.keys(ME_TIERS).map(t=>t===meTier
+      ?`<td class="r"><input type="number" data-meline="${l.id}" step="${meUnit==='wk'?1:5}" min="0" value="${+((l[t]||0)*k).toFixed(2)}" aria-label="${esc(l.name)} ${ME_TIERS[t]}"></td>`
+      :`<td class="r num">${money((l[t]||0)*k)}</td>`).join('')}</tr>`;
+  }
+  const tot=t=>lines.reduce((a,l)=>a+(l[t]||0),0);
+  h+=`<tr class="tot"><td>Total</td><td class="r num">${money(lines.reduce((a,l)=>a+(l.last||0),0)*k)}</td>${Object.keys(ME_TIERS).map(t=>`<td class="r num">${money(tot(t)*k)}</td>`).join('')}</tr>`;
+  h+=`<tr class="dep"><td>Left over</td><td></td>${Object.keys(ME_TIERS).map(t=>{const v=meAllowance(t)-tot(t);return `<td class="r num ${v<0?'neg':''}">${v<0?'−':''}${money(Math.abs(v)*k)}</td>`}).join('')}</tr></tbody></table></div>`;
+  if(meTier!==plan) h+=`<p class="foot">Heads up: the house plan is on <b>${PLANS[plan]}</b>, so 2Up is paying you the ${PLANS[plan]} amount (${money(meAllowance(plan)*k)}${meUnitLabel()}).</p>`;
+  // tracker
+  const months=[...new Set([...Object.keys(meMonths),...Object.values(monthsData).filter(m=>m.acct==='joint').map(m=>m.month)])].filter(m=>meMonths[m]||monthsData['joint_'+m]).sort().reverse();
+  h+=`<h3 style="margin-top:18px">My tracker</h3>
+   <div class="upload" id="meDrop"><div style="display:grid;gap:4px;min-width:0"><p class="foot">Add a monthly statement for your <b>personal</b> Up account. Things you bought for yourself on your 2Up card are included automatically.</p><p class="foot" id="meUpMsg"></p></div><label class="btn primary" for="meFileIn">Choose PDF statements</label><input type="file" id="meFileIn" accept="application/pdf,.pdf" multiple class="visually-hidden"></div>`;
+  if(months.length){
+    if(!meSel||!months.includes(meSel)) meSel=months[0];
+    const r=meSummary(meSel);
+    h+=`<label class="f inline" for="meMonth">Month <select id="meMonth">${months.map(m=>`<option value="${m}" ${m===meSel?'selected':''}>${monthName(m)}</option>`).join('')}</select></label>
+      <div class="kpis"><div><span class="eyebrow">Spent</span><b class="num">${money(r.actual)}</b><small>of ${money(r.budget)} (${ME_TIERS[meTier]})</small></div>
+      <div><span class="eyebrow">${r.left>=0?'Under budget':'Over budget'}</span><b class="num ${r.left<0?'neg':'pos'}">${money(Math.abs(r.left))}</b><small>${meMonths[meSel]?'personal account + your 2Up card':'only your 2Up card so far'}</small></div>
+      <div><span class="eyebrow">Book sales in</span><b class="num">${meMonths[meSel]?money(meMonths[meSel].bookSales||0):'–'}</b><small>Square, Amazon</small></div></div>`;
+    h+=`<div class="tablewrap"><table class="track"><thead><tr><th>Line</th><th class="r">Budget</th><th class="r">Actual</th><th class="r">Left</th><th class="barcol"><span class="visually-hidden">Used</span></th></tr></thead><tbody>`;
+    for(const x of r.rows.filter(x=>x.budget>0||Math.abs(r.by[x.id]||0)>0.5)){
+      const a=r.by[x.id]||0,left=x.budget-a,pct=x.budget>0?Math.min(1.5,a/x.budget):(a>0?1.5:0); const st=(x.budget===0&&a>0)||left<0?'over':pct>0.85?'near':'ok';
+      h+=`<tr><td>${esc(x.name)}</td><td class="r num">${x.budget?money(x.budget):'–'}</td><td class="r num">${money(a)}</td><td class="r num ${left<0?'neg':''}">${left<0?'−':''}${money(Math.abs(left))}</td><td class="barcol"><div class="meter ${st}"><span style="width:${Math.min(100,pct/1.5*100)}%"></span>${x.budget>0?'<i></i>':''}</div></td></tr>`;
+    }
+    h+=`<tr class="tot"><td>Total</td><td class="r num">${money(r.budget)}</td><td class="r num">${money(r.actual)}</td><td class="r num ${r.left<0?'neg':''}">${r.left<0?'−':''}${money(Math.abs(r.left))}</td><td></td></tr></tbody></table></div>`;
+    const pick=['coffee','beauty','fitness','collagen','clothes','fun','raiz','book','apps','gifts','other'].filter(id=>id in r.by||lines.some(l=>l.id===id));
+    const nameOf=id=>(lines.find(l=>l.id===id)||{}).name||({book:'Book business',apps:'Apps & subscriptions',other:'Other',gifts:'Gifts'}[id]||id);
+    const others=r.tx.filter(t=>t[2]>0&&(((meDoc.overrides||{})[mkey(t[1])])||ME_MAP[keyOf(t)]||'other')==='other').sort((a,b)=>b[2]-a[2]).slice(0,20);
+    if(others.length) h+=`<details class="fix"><summary>Other (${others.length}) · pick a line and it applies to every month</summary><div class="tablewrap"><table><tbody>${others.map(t=>`<tr><td class="num">${t[0].slice(8)}/${t[0].slice(5,7)}</td><td>${esc(t[1])}</td><td class="r num">${money(t[2],1)}</td><td class="r"><select data-memerchant="${esc(t[1])}" aria-label="Line for ${esc(t[1])}">${pick.map(id=>`<option value="${id}" ${id==='other'?'selected':''}>${esc(nameOf(id))}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table></div></details>`;
+    h+=`<div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Month</th><th class="r">Budget</th><th class="r">Spent</th><th class="r">Left</th></tr></thead><tbody>${months.map(m=>{const s=meSummary(m);return `<tr class="${m===meSel?'cur':''}"><td><button class="link" data-memonth="${m}">${monthName(m)}</button></td><td class="r num">${money(s.budget)}</td><td class="r num">${money(s.actual)}</td><td class="r num ${s.left<0?'neg':'pos'}">${s.left<0?'−':''}${money(Math.abs(s.left))}</td></tr>`}).join('')}</tbody></table></div>`;
+  } else h+=`<div class="empty">No months yet. Add a personal statement above.</div>`;
+  root.innerHTML=h;
+}
+
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-metier]'); if(t){ meTier=t.dataset.metier; meSave({tier:meTier}); renderMe(); return; }
+  const u=e.target.closest('[data-meunit]'); if(u){ meUnit=u.dataset.meunit; renderMe(); return; }
+  const m=e.target.closest('[data-memonth]'); if(m){ meSel=m.dataset.memonth; renderMe(); }
+});
+document.addEventListener('change',async e=>{
+  const el=e.target;
+  if(el.id==='meMonth'){ meSel=el.value; renderMe(); return; }
+  if(el.matches('input[data-meline]')){ const v=Math.max(0,+el.value||0)/meK(); const lines=meLines().map(l=>l.id===el.dataset.meline?Object.assign({},l,{[meTier]:Math.round(v*100)/100}):l); meSave({lines}); renderMe(); const n=document.querySelector(`input[data-meline="${el.dataset.meline}"]`); if(n) n.focus(); return; }
+  if(el.matches('select[data-memerchant]')){ meSave({overrides:Object.assign({},meDoc.overrides,{[mkey(el.dataset.memerchant)]:el.value})}); renderMe(); return; }
+  if(el.id==='meSetupIn'){ const f=el.files[0]; el.value=''; if(!f) return; const msg=document.getElementById('meSetupMsg');
+    try{ const d=JSON.parse(await f.text()); if(d.kind!=='personal-setup') throw new Error('That isn’t a personal setup file.');
+      msg.textContent='Saving…'; await meRef.set({lines:d.lines,cards:d.cards||[],tier:d.tier||'steady',overrides:{}});
+      const b=firebase.firestore().batch(); for(const [id,v] of Object.entries(d.months||{})) b.set(meRef.collection('months').doc(id),encMonth(v)); await b.commit(); msg.textContent='Done.'; }
+    catch(err){ msg.textContent='Couldn’t set up: '+(err.message||err.code); } return; }
+  if(el.id==='meFileIn'){ const files=[...el.files]; el.value=''; const msg=document.getElementById('meUpMsg'); msg.textContent='Reading…';
+    let n=0; const errs=[];
+    for(const f of files){ try{ const res=UP.parse(await readPdf(f)); if(res.acct!=='personal') throw new Error('this is the 2Up statement — add it on the Tracker tab instead');
+        for(const [k,v] of Object.entries(res.months)){ await meRef.collection('months').doc(k).set(encMonth({month:k,tx:v.tx,income:v.income,bookSales:v.bookSales,source:f.name,savedAt:new Date().toISOString()})); n++; } }
+      catch(err){ errs.push(f.name+': '+(err.message||'could not be read')); } }
+    msg.textContent=`${n} month${n!==1?'s':''} added.`+(errs.length?' '+errs.join(' '):''); return; }
+});
 
 </script>
 </body>

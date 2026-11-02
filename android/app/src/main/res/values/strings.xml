@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">House Saver</string>
+    <string name="launch_url">https://isabellemacdowall-prog.github.io/house-saver/</string>
+    <string name="asset_statements">[{ "relation": ["delegate_permission/common.handle_all_urls"], "target": { "namespace": "web", "site": "https://isabellemacdowall-prog.github.io" } }]</string>
+</resources>

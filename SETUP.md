@@ -21,3 +21,12 @@ Do step 3 straight after publishing: the first account to complete setup becomes
 
 ## Monthly
 Download last month's 2Up statement (PDF) from the Up app → open the site → Tracker → Choose PDF statements → Save to tracker.
+
+## Android app
+Each push that changes `android/` builds the app on GitHub (Actions tab, about 3 minutes).
+Download **HouseSaver.apk** from the repo's **Releases → House Saver app** on your phone and open it to install
+(allow "Install unknown apps" for your browser when asked). New versions install over the old one.
+
+## "My spending" (private tab)
+Requires the updated `firestore.rules` (publish them in Firebase → Firestore → Rules).
+Then open the My spending tab and choose your private `personal-setup.json` once.
