@@ -1023,6 +1023,7 @@ function renderMe(err){
     if(others.length) h+=`<details class="fix"><summary>Other (${others.length}) · pick a line and it applies to every month</summary><div class="tablewrap"><table><tbody>${others.map(t=>`<tr><td class="num">${t[0].slice(8)}/${t[0].slice(5,7)}</td><td>${esc(t[1])}</td><td class="r num">${money(t[2],1)}</td><td class="r"><select data-memerchant="${esc(t[1])}" aria-label="Line for ${esc(t[1])}">${pick.map(id=>`<option value="${id}" ${id==='other'?'selected':''}>${esc(nameOf(id))}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table></div></details>`;
     h+=`<div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Month</th><th class="r">Budget</th><th class="r">Spent</th><th class="r">Left</th></tr></thead><tbody>${months.map(m=>{const s=meSummary(m);return `<tr class="${m===meSel?'cur':''}"><td><button class="link" data-memonth="${m}">${monthName(m)}</button></td><td class="r num">${money(s.budget)}</td><td class="r num">${money(s.actual)}</td><td class="r num ${s.left<0?'neg':'pos'}">${s.left<0?'−':''}${money(Math.abs(s.left))}</td></tr>`}).join('')}</tbody></table></div>`;
   } else h+=`<div class="empty">No months yet. Add a personal statement above.</div>`;
+  h+=`<p class="foot" style="margin-top:14px">Got an updated setup file? <label for="meSetupIn" style="color:var(--accent);text-decoration:underline;cursor:pointer">Load it again</label> to replace your budget lines (your saved months and choices stay). <input type="file" id="meSetupIn" accept=".json,application/json" class="visually-hidden"> <span id="meSetupMsg"></span></p>`;
   root.innerHTML=h;
 }
 
@@ -1038,7 +1039,7 @@ document.addEventListener('change',async e=>{
   if(el.matches('select[data-memerchant]')){ meSave({overrides:Object.assign({},meDoc.overrides,{[mkey(el.dataset.memerchant)]:el.value})}); renderMe(); return; }
   if(el.id==='meSetupIn'){ const f=el.files[0]; el.value=''; if(!f) return; const msg=document.getElementById('meSetupMsg');
     try{ const d=JSON.parse(await f.text()); if(d.kind!=='personal-setup') throw new Error('That isn’t a personal setup file.');
-      msg.textContent='Saving…'; await meRef.set({lines:d.lines,cards:d.cards||[],tier:d.tier||'steady',overrides:{}});
+      msg.textContent='Saving…'; await meRef.set({lines:d.lines,cards:d.cards||[],tier:(meDoc&&meDoc.tier)||d.tier||'steady',overrides:(meDoc&&meDoc.overrides)||{}});
       const b=firebase.firestore().batch(); for(const [id,v] of Object.entries(d.months||{})) b.set(meRef.collection('months').doc(id),encMonth(v)); await b.commit(); msg.textContent='Done.'; }
     catch(err){ msg.textContent='Couldn’t set up: '+(err.message||err.code); } return; }
   if(el.id==='meFileIn'){ const files=[...el.files]; el.value=''; const msg=document.getElementById('meUpMsg'); msg.textContent='Reading…';
