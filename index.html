@@ -198,6 +198,8 @@ body.me-only #meSignOut{display:inline-block!important}
     <p class="row" id="installRow" hidden><button class="btn primary" id="installBtn">Install app</button><span class="foot" id="installHint"></span></p>
   </header>
 
+  <section class="panel" id="planUpdate" hidden style="border-color:var(--accent)"><h3>Plan update ready</h3><p class="foot" id="planUpdateText">Claude sent you an updated plan. Apply it for everyone? Your statements, edits and sharing stay as they are.</p><div class="row"><button class="btn primary" id="planApply">Apply update</button><button class="btn" id="planSkip">Not now</button></div></section>
+
   <section class="planbar" aria-label="Plan">
     <div class="seg big" role="group" aria-label="Choose plan">
       <button id="pS" aria-pressed="true">Steady</button>
@@ -964,6 +966,7 @@ function start(){
     gotM=true; done(); renderAll();
   },fail));
   meStart();
+  offerPlanLink();
 }
 let settingsLoadedOnce=false;
 function renderMembers(){
@@ -1095,6 +1098,27 @@ document.getElementById('planIn').onchange=async e=>{
     msg.textContent='Updating…'; await hhRef.collection('config').doc('plan').set({json:JSON.stringify(d.config)}); msg.textContent='Plan updated for everyone.'; }
   catch(err){ msg.textContent='Couldn’t update: '+(err.message||err.code); }
 };
+
+async function readPlanLink(){
+  const m=location.hash.match(/^#plan=([A-Za-z0-9_-]+)$/); if(!m) return null;
+  const b64=m[1].replace(/-/g,'+').replace(/_/g,'/'); const bin=atob(b64+'==='.slice((b64.length+3)%4));
+  const bytes=Uint8Array.from(bin,c=>c.charCodeAt(0));
+  const text=await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'))).text();
+  const cfg=JSON.parse(text); if(!cfg||!cfg.PLAN) throw new Error('bad');
+  return cfg;
+}
+function clearPlanHash(){ history.replaceState(null,'',location.pathname+location.search); }
+async function offerPlanLink(){
+  let cfg; try{ cfg=await readPlanLink(); }catch(e){ setStatus('That update link looks incomplete. Try opening it again.'); clearPlanHash(); return; }
+  if(!cfg) return;
+  const box=document.getElementById('planUpdate'); box.hidden=false; box.scrollIntoView({block:'start'});
+  document.getElementById('planSkip').onclick=()=>{ box.hidden=true; clearPlanHash(); };
+  document.getElementById('planApply').onclick=async()=>{
+    const btn=document.getElementById('planApply'); btn.disabled=true; btn.textContent='Applying…';
+    try{ await hhRef.collection('config').doc('plan').set({json:JSON.stringify(cfg)}); document.getElementById('planUpdateText').textContent='Done. The plan is updated for everyone.'; btn.hidden=true; document.getElementById('planSkip').textContent='Close'; clearPlanHash(); }
+    catch(e){ document.getElementById('planUpdateText').textContent='Couldn’t apply it ('+(e.code||'error')+'). Check you’re signed in, then open the link again.'; btn.disabled=false; btn.textContent='Apply update'; }
+  };
+}
 
 </script>
 </body>

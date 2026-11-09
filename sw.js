@@ -1,5 +1,5 @@
 // Offline support: the app shell is cached; your data stays in Firebase (which keeps its own offline copy).
-const VERSION = 'hs-v2';
+const VERSION = 'hs-v3';
 const SHELL = ['./', './index.html', './firebase-config.js', './manifest.json', './me-manifest.json',
   './icon-192.png', './icon-512.png', './me-icon-192.png', './me-icon-512.png'];
 self.addEventListener('install', e => {
