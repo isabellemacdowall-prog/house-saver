@@ -522,6 +522,9 @@ const monthName=k=>{const [y,m]=k.split('-');return new Date(+y,+m-1,1).toLocale
 
 const FIRST_PAY=new Date(2026,10,12);
 function untilDate(r){ const [y,m,d]=r.until.split('-').map(Number); return new Date(y,m-1,d,23,59); }
+function fromDate(r){ const [y,m,d]=r.from.split('-').map(Number); return new Date(y,m-1,d); }
+const isTimed=r=>!!(r.until||r.from);
+const activeAt=(r,d)=>(!r.until||d<=untilDate(r))&&(!r.from||d>=fromDate(r));
 const shortDate=d=>d.toLocaleDateString('en-AU',{day:'numeric',month:'short'});
 function phases(depAt){ // group pays with the same deposit amount
   const out=[]; let d=new Date(FIRST_PAY);
@@ -534,10 +537,10 @@ function phaseLabel(ph,i,all){ if(i===all.length-1) return 'from the '+shortDate
 function totals(P=S){
   const inc=P.income.reduce((a,r)=>a+r.v,0);
   const lines=P.joint.filter(r=>r.id);
-  const timed=lines.filter(r=>r.until);
-  const spend=lines.filter(r=>!r.until).reduce((a,r)=>a+r.v,0);
-  const lastSpend=lines.filter(r=>!r.until).reduce((a,r)=>a+r.last,0);
-  const depAt=d=>inc-spend-timed.filter(r=>d<=untilDate(r)).reduce((a,r)=>a+r.v,0);
+  const timed=lines.filter(isTimed);
+  const spend=lines.filter(r=>!isTimed(r)).reduce((a,r)=>a+r.v,0);
+  const lastSpend=lines.filter(r=>!isTimed(r)).reduce((a,r)=>a+r.last,0);
+  const depAt=d=>inc-spend-timed.filter(r=>activeAt(r,d)).reduce((a,r)=>a+r.v,0);
   const ph=phases(depAt);
   return {inc,spend,timed,depAt,phases:ph,depBefore:ph[0].v,depAfter:ph[ph.length-1].v,lastSpend};
 }
@@ -581,7 +584,7 @@ function renderIsy(){
   renderSmall('bookTable',S.book,'book',[{name:'From 2Up (book pot)',v:j('book')},{name:'Book sales (estimate)',v:S.bookSales,edit:true,key:'bookSales',hint:'Last year about $2,000, or about $75 a fortnight.'}]);
 }
 function renderSave(){
-  const rows=S.joint.filter(r=>r.id&&!r.until&&r.last>0).map(r=>({name:r.name,d:(r.last-r.v)*26})).filter(r=>r.d>50).sort((a,b)=>b.d-a.d);
+  const rows=S.joint.filter(r=>r.id&&!isTimed(r)&&r.last>0).map(r=>({name:r.name,d:(r.last-r.v)*26})).filter(r=>r.d>50).sort((a,b)=>b.d-a.d);
   const max=rows[0]?rows[0].d:1;
   document.getElementById('saveList').innerHTML=rows.map(r=>`<div class="saverow"><div><div>${r.name}</div><div class="bar" style="width:${Math.max(4,r.d/max*100)}%"></div></div><div class="num">${money(r.d)}/yr</div></div>`).join('');
 }
@@ -592,6 +595,10 @@ function renderUp(){
   for(const r of S.joint){ if(!r.id||r.id==='buffer'||r.joinWith) continue;
     if(joined(r.id).length){ const v=r.v+joined(r.id).reduce((a,x)=>a+x.v,0), now=r.now+joined(r.id).reduce((a,x)=>a+x.now,0);
       if(Math.abs(v-now)>0.01) items.push(`<b>${r.name}</b> saver (incl. ${joined(r.id).map(x=>x.name).join(', ')}): ${fmt(now)} \u2192 ${fmt(v)}.`); continue; }
+    if(r.addTo) continue;
+    const adds=S.joint.filter(x=>x.addTo===r.id&&x.from);
+    if(adds.length){ const after=r.v+adds.reduce((a,x)=>a+x.v,0); const first=phases(()=>0)[0]; let d=new Date(FIRST_PAY); while(d<fromDate(adds[0])) d=new Date(d.getTime()+14*864e5);
+      items.push(`<b>${r.name}</b>: ${fmt(r.now)} \u2192 ${fmt(r.v)} now, then ${fmt(Math.round(after*100)/100)} from the ${shortDate(d)} pay.`); continue; }
     if(r.until){items.push(`<b>${r.name}</b>: ${fmt(r.v)} each payday until the ${shortDate(untilDate(r))} pay, then switch it off.`);continue}
     if(Math.abs(r.v-r.now)<0.01) continue;
     if(r.now===0) items.push(`Create <b>${r.name}</b> saver: ${fmt(r.v)} each payday.`);
@@ -701,10 +708,11 @@ function monthTx(month,who){
   }
   return out;
 }
-function budgetRowsFor(who){
+function budgetRowsFor(who,month){
   const k=26/12;
   if(who==='joint'){
-    const rows=S.joint.filter(r=>r.id && !r.until && !['carloan','pIsy','pIsyThings','pJay','buffer'].includes(r.id)).map(r=>({id:r.id,name:r.name,budget:r.v*k}));
+    const rows=S.joint.filter(r=>r.id && !isTimed(r) && !['carloan','pIsy','pIsyThings','pJay','buffer'].includes(r.id)).map(r=>({id:r.id,name:r.name,budget:r.v*k}));
+    if(month) for(const x of S.joint.filter(x=>x.addTo&&x.from)){ const row=rows.find(r=>r.id===x.addTo); if(row && month>=x.from.slice(0,7)) row.budget+=x.v*k; }
     rows.push({id:'personal',name:'Personal things on 2Up cards',budget:0,note:'Beauty, clothes, fitness, events. These should come out of personal money.'});
     rows.push({id:'travel',name:'Travel',budget:0}); rows.push({id:'other',name:'Unsorted',budget:0,note:'Pick a line for these below.'});
     return rows;
@@ -716,7 +724,7 @@ function budgetRowsFor(who){
 }
 function lineFor(key,who){ if(who==='joint') return JOINT_MAP[key]||key; return ISY_MAP[key]||'x9'; }
 function monthSummary(month,who){
-  const rows=budgetRowsFor(who); const by={}; rows.forEach(r=>by[r.id]=0);
+  const rows=budgetRowsFor(who,month); const by={}; rows.forEach(r=>by[r.id]=0);
   const tx=monthTx(month,who);
   for(const t of tx){ const l=lineFor(keyOf(t),who); if(!(l in by)) by[l]=0; by[l]+=t[2]; }
   const budget=rows.reduce((a,r)=>a+r.budget,0), actual=Object.values(by).reduce((a,v)=>a+v,0);
